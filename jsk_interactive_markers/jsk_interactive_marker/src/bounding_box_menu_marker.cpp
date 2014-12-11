@@ -42,7 +42,8 @@
 #include <boost/bind.hpp>
 
 boost::shared_ptr<interactive_markers::InteractiveMarkerServer> server;
-interactive_markers::MenuHandler menu_handler;
+interactive_markers::MenuHandler lv0_menu_handler;
+interactive_markers::MenuHandler lv1_menu_handler;
 boost::mutex mutex;
 ros::Publisher lv0_pub, lv0_box_pub, lv0_box_arr_pub;
 ros::Publisher lv1_pub, lv1_box_pub, lv1_box_arr_pub;
@@ -51,8 +52,7 @@ bool update_box_ = true;
 ros::Time last_int_t_; //last interaction time
 
 
-
-void processFeedback(const visualization_msgs::InteractiveMarkerFeedbackConstPtr &feedback, const int level)
+void boxMarkerFeedback(const visualization_msgs::InteractiveMarkerFeedbackConstPtr &feedback, const int level)
 {
   boost::mutex::scoped_lock(mutex);
   // control_name is "sec nsec index"
@@ -62,11 +62,10 @@ void processFeedback(const visualization_msgs::InteractiveMarkerFeedbackConstPtr
   last_int_t_ = ros::Time::now();
   
   if (feedback->event_type == visualization_msgs::InteractiveMarkerFeedback::MOUSE_DOWN) {
-
     if (level == 0){
       update_box_ = false;
-    }
-
+     }
+    ROS_INFO("update_box_:%d", update_box_);
     std::string control_name = feedback->control_name;
     ROS_INFO_STREAM("control_name: " << control_name);
     std::list<std::string> splitted_string;
@@ -98,15 +97,12 @@ void processFeedback(const visualization_msgs::InteractiveMarkerFeedbackConstPtr
   }
 }
 
-
-
-void boxCallback(const jsk_pcl_ros::BoundingBoxArray::ConstPtr& msg, const int level)
+void makeInterativeBox(const int level)
 {
-  box_msg[level] = msg;
   server->clear();
   // create cube markers
-  for (size_t i = 0; i < msg->boxes.size(); i++) {
-    jsk_pcl_ros::BoundingBox box = msg->boxes[i];
+  for (size_t i = 0; i < box_msg[level]->boxes.size(); i++) {
+    jsk_pcl_ros::BoundingBox box = box_msg[level]->boxes[i];
     visualization_msgs::InteractiveMarker int_marker;
     int_marker.header.frame_id = box.header.frame_id;
     int_marker.pose = box.pose;
@@ -117,7 +113,7 @@ void boxCallback(const jsk_pcl_ros::BoundingBoxArray::ConstPtr& msg, const int l
     }
     
     visualization_msgs::InteractiveMarkerControl control;
-    control.interaction_mode = visualization_msgs::InteractiveMarkerControl::BUTTON;
+    control.interaction_mode = visualization_msgs::InteractiveMarkerControl::MENU;
     {
       std::stringstream ss;
       // encode several informations into control name
@@ -137,10 +133,47 @@ void boxCallback(const jsk_pcl_ros::BoundingBoxArray::ConstPtr& msg, const int l
     control.always_visible = true;
     int_marker.controls.push_back(control);
     server->insert(int_marker);
-    server->setCallback(int_marker.name, boost::bind(&processFeedback, _1, level));
+    server->setCallback(int_marker.name, boost::bind(&boxMarkerFeedback, _1, level));
+    
+    if (level == 0){
+      lv0_menu_handler.apply( *server, int_marker.name);
+    }else if (level == 1){
+      lv1_menu_handler.apply( *server, int_marker.name);
+    }
   }
   server->applyChanges();
+}
+
+
+void menuMarkerFeedback(const visualization_msgs::InteractiveMarkerFeedbackConstPtr &feedback, const int level, const int order)
+{
+  boost::mutex::scoped_lock(mutex);
+  ROS_INFO("MENU_FEEDBACK:%d", feedback->event_type);
+  ROS_INFO("MENU_Level:%d", level);
+  if (level == 0){
+    switch (order){
+    case 0:
+      break;
+    case 1:
+      break;
+    case 2:
+      break;
+    case 3:
+      makeInterativeBox(1);
+      break;
+    }
   }
+  if (level == 1){
+    switch (order){
+    case 0:
+      break;
+    case 1:
+      break;
+    case 2:
+      break;
+    }
+  }
+}
 
 void boxCallback00(const jsk_pcl_ros::BoundingBoxArray::ConstPtr& msg)
 {
@@ -151,17 +184,33 @@ void boxCallback00(const jsk_pcl_ros::BoundingBoxArray::ConstPtr& msg)
   if ((ros::Time::now().toSec() - last_int_t_.toSec()) >= 5.0){
     update_box_ = true;
   }
+  box_msg[0] = msg;
   if (update_box_){
-    boxCallback(msg, 0);
+    makeInterativeBox(0);
   }
 }
 
 void boxCallback01(const jsk_pcl_ros::BoundingBoxArray::ConstPtr& msg)
 {
   boost::mutex::scoped_lock(mutex);
-  boxCallback(msg, 1);
-
+  box_msg[1] = msg;
 }
+
+void initMenu ()
+{
+  lv0_menu_handler.insert("Grasp", boost::bind(&menuMarkerFeedback, _1, 0, 0));
+  interactive_markers::MenuHandler::EntryHandle lv0_arm_menu_handle = lv0_menu_handler.insert("PlaceObject");
+  lv0_menu_handler.insert(lv0_arm_menu_handle, "LeftArm", boost::bind(&menuMarkerFeedback, _1, 0, 1));
+  lv0_menu_handler.insert(lv0_arm_menu_handle, "RightArm", boost::bind(&menuMarkerFeedback, _1, 0, 2));
+  lv0_menu_handler.insert("Investigate", boost::bind(&menuMarkerFeedback, _1, 0, 3));
+  
+  interactive_markers::MenuHandler::EntryHandle lv1_arm_menu_handle = lv1_menu_handler.insert("PickUpObject");
+  lv1_menu_handler.insert(lv1_arm_menu_handle, "LeftArm", boost::bind(&menuMarkerFeedback, _1, 1, 0));
+  lv1_menu_handler.insert(lv1_arm_menu_handle, "RightArm", boost::bind(&menuMarkerFeedback, _1, 1, 1));
+  lv1_menu_handler.insert("MANIPULATE", boost::bind(&menuMarkerFeedback, _1, 1, 2));
+}
+
+
 
 
 int main(int argc, char** argv)
@@ -177,13 +226,7 @@ int main(int argc, char** argv)
   lv1_box_arr_pub = pnh.advertise<jsk_pcl_ros::BoundingBoxArray>("level01_selected_box_array", 1);
   ros::Subscriber lv0_sub = pnh.subscribe("level00_bounding_box_array", 1, boxCallback00);
   ros::Subscriber lv1_sub = pnh.subscribe("level01_bounding_box_array", 1, boxCallback01);
-
-  // menu_handler.insert("First Entry", &processFeedback);
-  // menu_handler.insert("Secound Entry", &processFeedback);
-  // interactive_markers::MenuHandler::EntryHandle sub_menu_handle = menu_handler.insert( "Submenu");
-  // menu_handler.insert(sub_menu_handle, "First Entry", &processFeedback);
-  // menu_handler.insert(sub_menu_handle, "Secound Entry",&processFeedback);  
-  
+  initMenu();
   ros::spin();
   server.reset();
   return 0;
