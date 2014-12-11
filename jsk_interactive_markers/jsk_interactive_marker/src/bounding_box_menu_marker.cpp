@@ -36,6 +36,7 @@
 #include <interactive_markers/menu_handler.h>
 #include <jsk_pcl_ros/Int32Stamped.h>
 #include <jsk_pcl_ros/BoundingBoxArray.h>
+#include <std_msgs/Int32.h>
 #include <ros/ros.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
@@ -47,6 +48,7 @@ interactive_markers::MenuHandler lv1_menu_handler;
 boost::mutex mutex;
 ros::Publisher lv0_pub, lv0_box_pub, lv0_box_arr_pub;
 ros::Publisher lv1_pub, lv1_box_pub, lv1_box_arr_pub;
+ros::Publisher menu_action_pub;
 jsk_pcl_ros::BoundingBoxArray::ConstPtr box_msg[2];
 bool update_box_ = true;
 ros::Time last_int_t_; //last interaction time
@@ -150,15 +152,24 @@ void menuMarkerFeedback(const visualization_msgs::InteractiveMarkerFeedbackConst
   boost::mutex::scoped_lock(mutex);
   ROS_INFO("MENU_FEEDBACK:%d", feedback->event_type);
   ROS_INFO("MENU_Level:%d", level);
+  std_msgs::Int32 req;
   if (level == 0){
     switch (order){
     case 0:
+      req.data = 0;
+      menu_action_pub.publish(req);
       break;
     case 1:
+      req.data = 1;
+      menu_action_pub.publish(req);
       break;
     case 2:
+      req.data = 2;
+      menu_action_pub.publish(req);
       break;
     case 3:
+      req.data = 3;
+      menu_action_pub.publish(req);
       makeInterativeBox(1);
       break;
     }
@@ -166,10 +177,16 @@ void menuMarkerFeedback(const visualization_msgs::InteractiveMarkerFeedbackConst
   if (level == 1){
     switch (order){
     case 0:
+      req.data = 4;
+      menu_action_pub.publish(req);
       break;
     case 1:
+      req.data = 5;
+      menu_action_pub.publish(req);
       break;
     case 2:
+      req.data = 6;
+      menu_action_pub.publish(req);
       break;
     }
   }
@@ -224,6 +241,7 @@ int main(int argc, char** argv)
   lv1_box_pub = pnh.advertise<jsk_pcl_ros::BoundingBox>("level01_selected_box", 1);
   lv0_box_arr_pub = pnh.advertise<jsk_pcl_ros::BoundingBoxArray>("level00_selected_box_array", 1);
   lv1_box_arr_pub = pnh.advertise<jsk_pcl_ros::BoundingBoxArray>("level01_selected_box_array", 1);
+  menu_action_pub = pnh.advertise<std_msgs::Int32>("menu_feedback", 1);
   ros::Subscriber lv0_sub = pnh.subscribe("level00_bounding_box_array", 1, boxCallback00);
   ros::Subscriber lv1_sub = pnh.subscribe("level01_bounding_box_array", 1, boxCallback01);
   initMenu();
