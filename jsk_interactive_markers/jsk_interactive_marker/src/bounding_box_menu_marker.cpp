@@ -38,6 +38,7 @@
 #include <jsk_pcl_ros/BoundingBoxArray.h>
 #include <std_msgs/Int32.h>
 #include <ros/ros.h>
+#include <tf/transform_listener.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
 #include <boost/bind.hpp>
@@ -146,6 +147,97 @@ void makeInterativeBox(const int level)
   server->applyChanges();
 }
 
+void arrowMarkerFeedback(const visualization_msgs::InteractiveMarkerFeedbackConstPtr &feedback, const int level)
+{
+}
+
+visualization_msgs::InteractiveMarker makeArrowIntMarker(tf::Transform t, jsk_pcl_ros::BoundingBox box, int n)
+{
+  visualization_msgs::InteractiveMarker int_marker;
+  geometry_msgs::Pose arrow_pose;
+  arrow_pose.position.x = t.getOrigin()[0];
+  arrow_pose.position.y = t.getOrigin()[1];
+  arrow_pose.position.z = t.getOrigin()[2];
+  arrow_pose.orientation.x = t.getRotation()[0];
+  arrow_pose.orientation.y = t.getRotation()[1];
+  arrow_pose.orientation.z = t.getRotation()[2];
+  arrow_pose.orientation.w = t.getRotation()[3];
+  int_marker.header.frame_id = box.header.frame_id;
+  int_marker.pose = arrow_pose;
+  std::stringstream ss;
+  // encode several informations into control name
+  ss << "arrow_" << n;
+  int_marker.name = ss.str()
+;
+  visualization_msgs::InteractiveMarkerControl control;
+  control.interaction_mode = visualization_msgs::InteractiveMarkerControl::BUTTON;
+  
+  visualization_msgs::Marker marker;
+  marker.type = visualization_msgs::Marker::ARROW;
+  marker.scale.x = 0.2;
+  marker.scale.y = 0.05;
+  marker.scale.z = 0.05;
+  marker.color.r = (n == 0 || n == 1)? 1.0 : 0.0;
+  marker.color.g = (n == 4 || n == 5)? 1.0 : 0.0;
+  marker.color.b = (n == 2 || n == 3)? 1.0 : 0.0;
+  marker.color.a = 1.0;
+  control.markers.push_back(marker);
+  control.always_visible = true;
+  int_marker.controls.push_back(control);
+  return int_marker;
+}
+
+
+void makeInteractiveArrow(const int level, const int box_idx)
+{
+  boost::mutex::scoped_lock(mutex);
+  server->clear();
+  ROS_INFO("BOX_INDEX:%d", box_idx);
+  jsk_pcl_ros::BoundingBox box = box_msg[level]->boxes[box_idx];
+  geometry_msgs::Pose pose = box.pose;
+  tf::Transform box_trans;
+  tf::Vector3 box_pos = tf::Vector3(pose.position.x, pose.position.y, pose.position.z);
+  tf::Quaternion box_orient = tf::Quaternion(pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w);
+  tf::Transform y90deg;
+  tf::Transform z90deg;
+  tf::Transform xshift;
+  box_trans.setOrigin(box_pos);
+  box_trans.setRotation(box_orient);
+  y90deg.setOrigin(tf::Vector3(0,0,0));
+  y90deg.setRotation(tf::createQuaternionFromRPY(0,M_PI/2,0));
+  z90deg.setOrigin(tf::Vector3(0,0,0));
+  z90deg.setRotation(tf::createQuaternionFromRPY(0,0,M_PI/2));
+  xshift.setOrigin(tf::Vector3(box.dimensions.x / 2, 0, 0));
+  xshift.setRotation(tf::createQuaternionFromRPY(0,0,0));
+  
+  visualization_msgs::InteractiveMarker int_marker;
+  int_marker= makeArrowIntMarker(box_trans * xshift, box , 0);
+  server -> insert(int_marker);
+  server -> setCallback(int_marker.name, boost::bind(&arrowMarkerFeedback, _1, level));
+
+  int_marker = makeArrowIntMarker(box_trans * y90deg * y90deg * xshift, box, 1);
+  server -> insert(int_marker);
+  server -> setCallback(int_marker.name, boost::bind(&arrowMarkerFeedback, _1, level));
+  xshift.setOrigin(tf::Vector3(box.dimensions.z / 2, 0, 0));
+  int_marker = makeArrowIntMarker(box_trans * y90deg * xshift, box, 2);
+  server -> insert(int_marker);
+  server -> setCallback(int_marker.name, boost::bind(&arrowMarkerFeedback, _1, level));
+  server -> applyChanges();
+  int_marker = makeArrowIntMarker(box_trans * y90deg * y90deg *  y90deg * xshift, box, 3);
+  server -> insert(int_marker);
+  server -> setCallback(int_marker.name, boost::bind(&arrowMarkerFeedback, _1, level));
+  server -> applyChanges();
+  xshift.setOrigin(tf::Vector3(box.dimensions.y / 2, 0, 0));
+  int_marker = makeArrowIntMarker(box_trans * z90deg * xshift, box, 4);
+  server -> insert(int_marker);
+  server -> setCallback(int_marker.name, boost::bind(&arrowMarkerFeedback, _1, level));
+  server -> applyChanges();
+  int_marker = makeArrowIntMarker(box_trans * z90deg * z90deg * z90deg* xshift, box, 5);
+  server -> insert(int_marker);
+  server -> setCallback(int_marker.name, boost::bind(&arrowMarkerFeedback, _1, level));
+  server -> applyChanges();
+  server -> applyChanges();
+}
 
 void menuMarkerFeedback(const visualization_msgs::InteractiveMarkerFeedbackConstPtr &feedback, const int level, const int order)
 {
@@ -186,6 +278,11 @@ void menuMarkerFeedback(const visualization_msgs::InteractiveMarkerFeedbackConst
       break;
     case 2:
       req.data = 6;
+      std::vector<std::string> splitted_string;
+      std::string control_name = feedback -> control_name;
+      boost::split(splitted_string, control_name, boost::is_space());
+      int box_idx= boost::lexical_cast<int>(splitted_string[2]);
+      makeInteractiveArrow(level, box_idx);
       menu_action_pub.publish(req);
       break;
     }
