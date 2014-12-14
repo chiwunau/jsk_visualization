@@ -50,6 +50,7 @@ boost::mutex mutex;
 ros::Publisher lv0_pub, lv0_box_pub, lv0_box_arr_pub;
 ros::Publisher lv1_pub, lv1_box_pub, lv1_box_arr_pub;
 ros::Publisher menu_action_pub;
+ros::Publisher manipulate_action_pub;
 jsk_pcl_ros::BoundingBoxArray::ConstPtr box_msg[2];
 bool update_box_ = true;
 ros::Time last_int_t_; //last interaction time
@@ -149,6 +150,18 @@ void makeInterativeBox(const int level)
 
 void arrowMarkerFeedback(const visualization_msgs::InteractiveMarkerFeedbackConstPtr &feedback, const int level)
 {
+  if (feedback->event_type == visualization_msgs::InteractiveMarkerFeedback::MOUSE_DOWN){
+    geometry_msgs::PoseStamped res;
+    std::vector<std::string> splitted_string;
+    std::string control_name = feedback -> control_name;
+    boost::split(splitted_string, control_name, boost::is_space());
+    res.header.stamp.sec = boost::lexical_cast<int>(splitted_string[0]);
+    res.header.stamp.nsec = boost::lexical_cast<int>(splitted_string[1]);
+    res.header.frame_id = feedback -> header.frame_id;
+    res.pose = feedback -> pose;
+
+    manipulate_action_pub.publish(res);
+  }
 }
 
 visualization_msgs::InteractiveMarker makeArrowIntMarker(tf::Transform t, jsk_pcl_ros::BoundingBox box, int n)
@@ -164,12 +177,19 @@ visualization_msgs::InteractiveMarker makeArrowIntMarker(tf::Transform t, jsk_pc
   arrow_pose.orientation.w = t.getRotation()[3];
   int_marker.header.frame_id = box.header.frame_id;
   int_marker.pose = arrow_pose;
+  {
   std::stringstream ss;
   // encode several informations into control name
   ss << "arrow_" << n;
-  int_marker.name = ss.str()
-;
+  int_marker.name = ss.str();
+  }
   visualization_msgs::InteractiveMarkerControl control;
+  {
+  std::stringstream ss;
+  // encode several informations into control name
+  ss << box.header.stamp.sec << " " << box.header.stamp.nsec;
+  control.name = ss.str();
+  }
   control.interaction_mode = visualization_msgs::InteractiveMarkerControl::BUTTON;
   
   visualization_msgs::Marker marker;
@@ -211,31 +231,32 @@ void makeInteractiveArrow(const int level, const int box_idx)
   xshift.setRotation(tf::createQuaternionFromRPY(0,0,0));
   
   visualization_msgs::InteractiveMarker int_marker;
+  //x-axis
   int_marker= makeArrowIntMarker(box_trans * xshift, box , 0);
   server -> insert(int_marker);
   server -> setCallback(int_marker.name, boost::bind(&arrowMarkerFeedback, _1, level));
-
+  //negative-x-axis
   int_marker = makeArrowIntMarker(box_trans * y90deg * y90deg * xshift, box, 1);
   server -> insert(int_marker);
   server -> setCallback(int_marker.name, boost::bind(&arrowMarkerFeedback, _1, level));
   xshift.setOrigin(tf::Vector3(box.dimensions.z / 2, 0, 0));
+  //negative-z-axis
   int_marker = makeArrowIntMarker(box_trans * y90deg * xshift, box, 2);
   server -> insert(int_marker);
   server -> setCallback(int_marker.name, boost::bind(&arrowMarkerFeedback, _1, level));
-  server -> applyChanges();
+  //z-axis
   int_marker = makeArrowIntMarker(box_trans * y90deg * y90deg *  y90deg * xshift, box, 3);
   server -> insert(int_marker);
   server -> setCallback(int_marker.name, boost::bind(&arrowMarkerFeedback, _1, level));
-  server -> applyChanges();
   xshift.setOrigin(tf::Vector3(box.dimensions.y / 2, 0, 0));
+  //y-axis
   int_marker = makeArrowIntMarker(box_trans * z90deg * xshift, box, 4);
   server -> insert(int_marker);
   server -> setCallback(int_marker.name, boost::bind(&arrowMarkerFeedback, _1, level));
-  server -> applyChanges();
+  //negative-y-axis
   int_marker = makeArrowIntMarker(box_trans * z90deg * z90deg * z90deg* xshift, box, 5);
   server -> insert(int_marker);
   server -> setCallback(int_marker.name, boost::bind(&arrowMarkerFeedback, _1, level));
-  server -> applyChanges();
   server -> applyChanges();
 }
 
@@ -338,7 +359,8 @@ int main(int argc, char** argv)
   lv1_box_pub = pnh.advertise<jsk_pcl_ros::BoundingBox>("level01_selected_box", 1);
   lv0_box_arr_pub = pnh.advertise<jsk_pcl_ros::BoundingBoxArray>("level00_selected_box_array", 1);
   lv1_box_arr_pub = pnh.advertise<jsk_pcl_ros::BoundingBoxArray>("level01_selected_box_array", 1);
-  menu_action_pub = pnh.advertise<std_msgs::Int32>("menu_feedback", 1);
+  menu_action_pub = pnh.advertise<std_msgs::Int32>("menu_action_request", 1);
+  manipulate_action_pub = pnh.advertise<geometry_msgs::PoseStamped>("manipulate_pose", 1);
   ros::Subscriber lv0_sub = pnh.subscribe("level00_bounding_box_array", 1, boxCallback00);
   ros::Subscriber lv1_sub = pnh.subscribe("level01_bounding_box_array", 1, boxCallback01);
   initMenu();
